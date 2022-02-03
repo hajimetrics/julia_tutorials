@@ -76,6 +76,7 @@ Diagonal(sqrt(inv(sum([pdf(Normal(0, 1), transpose(X[i, :]) * β_hat)^2 * X[i, :
 
 
 # Read csv
+# sample data is from https://stats.oarc.ucla.edu/r/dae/probit-regression/
 # df = DataFrame(CSV.File("file.csv"))
 df = CSV.File("binary.csv") |> DataFrame
 
