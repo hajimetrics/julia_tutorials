@@ -3,7 +3,6 @@ using StatsPlots
 using Distributions
 using Optim
 
-
 """
 Estimate Probit regression with Maximum Likelihood.
 
@@ -29,7 +28,7 @@ function Probit_ML(X, y)
 
        ## Estimate Standard Error of Estimator
        # (based on Wooldridge p.481)
-       β_vcm = inv(sum([pdf(Normal(0,1),transpose(X[i,:])*β_hat)^2 * X[i,:] * transpose(X[i,:])/ (cdf(Normal(0,1),transpose(X[i,:])*β_hat)*(1 - cdf(Normal(0,1),transpose(X[i,:])*β_hat))) for i in 1:size(X,1)]))
+       β_vcm = inv(sum([pdf(Normal(0,1),transpose(X[i,:])*β_ml)^2 * X[i,:] * transpose(X[i,:])/ (cdf(Normal(0,1),transpose(X[i,:])*β_ml)*(1 - cdf(Normal(0,1),transpose(X[i,:])*β_ml))) for i in 1:size(X,1)]))
 
        return β_ml
 end
@@ -38,7 +37,7 @@ end
 plot(Normal(10, 7))
 dist = Normal(0,1)
 pdf(dist,0.5)
-X = [1 3 ;4 6 ;7 9,]
+X = [1 3 ;4 6 ;7 9]
 hcat(ones(size(X, 1)), X)
 y = [0, 1, 0]
 
@@ -55,7 +54,7 @@ function negsumloglike(β)
 end
 
 
-#function negsumfor(β)
+function negsumfor(β)
        nsll = 0
        for i in 1:size(X, 1)
               nsll += pdf(Normal(0, 1), )
