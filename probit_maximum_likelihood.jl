@@ -5,6 +5,7 @@ using Optim
 using LinearAlgebra
 using DataFrames
 using CSV
+using ForwardDiff
 
 """
 Estimate Probit regression with Maximum Likelihood.
@@ -40,9 +41,9 @@ function Probit_ML(data::DataFrame, y_name::String, X_name::Array)
 
        z_values = β_ml ./ β_se
        ##
-       result = DataFrame((var_name = push!(X_name, "(intercept)"), coef = β_ml, SE = β_se, z_value = z_values, p_value = (1 .- cdf.(Normal(0, 1), abs.(res[:, "z_value"]))) .* 2))
+       result = DataFrame((var_name = push!(X_name, "(intercept)"), coef = β_ml, SE = β_se, z_value = z_values, p_value = (1 .- cdf.(Normal(0, 1), abs.(z_values))) .* 2))
 
-       return result
+       return result, β_vcm
 end
 
 
@@ -92,16 +93,16 @@ y = df[:, :admit]
 X_data = df[:, [:gre, :gpa, :rank2, :rank3, :rank4]]
 X = Matrix(X_data)
 X
-β_hat, se = Probit_ML(y, X)
-df
 
-res = Probit_ML(df, "admit", ["gre", "gpa", "rank2", "rank3", "rank4"])
+res, β_vcm = Probit_ML(df, "admit", ["gre", "gpa", "rank2", "rank3", "rank4"])
 
 print(res)
+size(β_vcm)
 
 (1 .- cdf.(Normal(0, 1), abs.(res[:, "z_value"]))) .* 2
 
 res
+
 # Marginal Effect
 """
 Marginal Effect of probit regression for continuous variable
@@ -112,7 +113,7 @@ Marginal Effect of probit regression for continuous variable
 The marginal effect on X_j depends on β_j, X_j and other β and X. Therefore
 
 """
-function average_marginal_effect_probit(result_df::DataFrame, x_margins::DataFrame, target_variable::String; is_discrete=false)
+function average_marginal_effect_probit(result_df::DataFrame, x_margins::DataFrame, target_variable::String; is_discrete = false)
        X = Matrix(x_margins[:, result_df[1:(size(result_df, 1)-1), :var_name]])
        X = hcat(X, ones(size(X, 1)))
        β_hat = result_df[:, :coef]
@@ -123,10 +124,43 @@ function average_marginal_effect_probit(result_df::DataFrame, x_margins::DataFra
               # discrete is f**king weird.
               # dydxs = nohting
        else
-              dydxs = pdf.(Normal(0, 1), X * β_hat) .* β_target      
+              dydxs = pdf.(Normal(0, 1), X * β_hat) .* β_target
        end
        ame = mean(dydxs)
        return ame
 end
 
-average_marginal_effect_probit(res, df, "rank2")
+
+
+average_marginal_effect_probit(res, df, "gre") # 0.000447
+average_marginal_effect_probit(res, df, "gpa") # 0.1552
+
+# by R "margins"
+#  factor     AME     SE       z      p   lower   upper
+#     gpa  0.1552 0.0628  2.4723 0.0134  0.0322  0.2783
+#     gre  0.0004 0.0002  2.1486 0.0317  0.0000  0.0009
+#   rank2 -0.1564 0.0736 -2.1237 0.0337 -0.3007 -0.0121
+#   rank3 -0.2868 0.0734 -3.9078 0.0001 -0.4306 -0.1429
+#   rank4 -0.3213 0.0799 -4.0231 0.0001 -0.4778 -0.1647
+
+# https://juliadiff.org/
+# https://github.com/JuliaDiff/ForwardDiff.jl
+
+X = Matrix(df[:, [:gre, :gpa, :rank2, :rank3, :rank4]])
+function ame_func(β_hat::Vector)
+       global X # call global X data outside
+       X_t = hcat(X, ones(size(X, 1)))
+       β_target = β_hat[1]
+       dydxs = pdf.(Normal(0, 1), X_t * β_hat) .* β_target
+       ame = mean(dydxs)
+       return ame
+end
+
+# check ame function
+ame_func(res[:, :coef])
+
+#https://juliadiff.org/ForwardDiff.jl/stable/
+
+ForwardDiff.gradient(ame_func, res[:, :coef])
+
+g(res[:, :coef])
