@@ -6,7 +6,6 @@ using LinearAlgebra
 using DataFrames
 using CSV
 using ForwardDiff
-
 """
 Estimate Probit regression with Maximum Likelihood.
 
@@ -89,19 +88,17 @@ df[:, "rank4"] = df[:, :rank] .== 4 .* 1.0
 
 df
 
-y = df[:, :admit]
-X_data = df[:, [:gre, :gpa, :rank2, :rank3, :rank4]]
-X = Matrix(X_data)
-X
+# y = df[:, :admit]
+# X_data = df[:, [:gre, :gpa, :rank2, :rank3, :rank4]]
+# X = Matrix(X_data)
+# X
 
 res, β_vcm = Probit_ML(df, "admit", ["gre", "gpa", "rank2", "rank3", "rank4"])
 
 print(res)
 size(β_vcm)
 
-(1 .- cdf.(Normal(0, 1), abs.(res[:, "z_value"]))) .* 2
-
-res
+# (1 .- cdf.(Normal(0, 1), abs.(res[:, "z_value"]))) .* 2
 
 # Marginal Effect
 """
@@ -113,54 +110,88 @@ Marginal Effect of probit regression for continuous variable
 The marginal effect on X_j depends on β_j, X_j and other β and X. Therefore
 
 """
-function average_marginal_effect_probit(result_df::DataFrame, x_margins::DataFrame, target_variable::String; is_discrete = false)
-       X = Matrix(x_margins[:, result_df[1:(size(result_df, 1)-1), :var_name]])
-       X = hcat(X, ones(size(X, 1)))
+function average_marginal_effect_probit(result_df::DataFrame, vcm, x_margins::DataFrame, target_variable::String; is_discrete = false, ci_level = 0.95)
+       X_mat = Matrix(x_margins[:, result_df[1:(size(result_df, 1)-1), :var_name]])
+       X_mat = hcat(X_mat, ones(size(X_mat, 1)))
        β_hat = result_df[:, :coef]
-       β_target = result_df[result_df[:, :var_name].==target_variable, :coef]
+       β_target_idx = findall(result_df.var_name .== target_variable)
 
        if is_discrete
               # discrte process
               # discrete is f**king weird.
               # dydxs = nohting
        else
-              dydxs = pdf.(Normal(0, 1), X * β_hat) .* β_target
+              #dydxs = pdf.(Normal(0, 1), X * β_hat) .* β_target
+              function ame_func(θ_hat::Vector)
+                     dydxs = pdf.(Normal(0, 1), X_mat * θ_hat) .* θ_hat[β_target_idx]
+                     ame = mean(dydxs)
+                     return ame
+              end
+              # ame function
+              ame_ = ame_func(β_hat)
+              # function nabla on AME
+              ∇c = ForwardDiff.gradient(ame_func, β_hat)
+              # nabla_ame(θ_hat) = ForwardDiff.gradient(ame_func, θ_hat)
+              # ∇c = nabla_ame(β_hat)
+              ame_se_ = sqrt(transpose(∇c) * vcm * ∇c)
        end
-       ame = mean(dydxs)
-       return ame
+
+       
+       ame_z_ = ame_ / ame_se_ # asymptoticaly distibuted in std Normal, Z ~ Normal(0, 1) not t ~ Tdist()
+       ame_p_ = (1 .- cdf.(Normal(0, 1), abs.(ame_z_))) .* 2
+       ame_ci95l_ = ame_ + quantile(Normal(0, 1), (1 - ci_level) / 2) * ame_se_
+       ame_ci95u_ = ame_ - quantile(Normal(0, 1), (1 - ci_level) / 2) * ame_se_
+       return [ame_, ame_se_, ame_z_ , ame_p_, ame_ci95l_ , ame_ci95u_]
 end
 
+average_marginal_effect_probit(res, β_vcm, df, "gre") # 0.000447
+average_marginal_effect_probit(res, β_vcm, df, "gpa") # 0.1552
 
-
-average_marginal_effect_probit(res, df, "gre") # 0.000447
-average_marginal_effect_probit(res, df, "gpa") # 0.1552
+# struct <-- future research
 
 # by R "margins"
 #  factor     AME     SE       z      p   lower   upper
-#     gpa  0.1552 0.0628  2.4723 0.0134  0.0322  0.2783
 #     gre  0.0004 0.0002  2.1486 0.0317  0.0000  0.0009
+#     gpa  0.1552 0.0628  2.4723 0.0134  0.0322  0.2783
 #   rank2 -0.1564 0.0736 -2.1237 0.0337 -0.3007 -0.0121
 #   rank3 -0.2868 0.0734 -3.9078 0.0001 -0.4306 -0.1429
 #   rank4 -0.3213 0.0799 -4.0231 0.0001 -0.4778 -0.1647
 
 # https://juliadiff.org/
 # https://github.com/JuliaDiff/ForwardDiff.jl
+# wooldridge p46 LEMMA3.9
 
 X = Matrix(df[:, [:gre, :gpa, :rank2, :rank3, :rank4]])
+k = 1
+
 function ame_func(β_hat::Vector)
        global X # call global X data outside
+       global k # target coef index
        X_t = hcat(X, ones(size(X, 1)))
-       β_target = β_hat[1]
+       β_target = β_hat[k]
        dydxs = pdf.(Normal(0, 1), X_t * β_hat) .* β_target
        ame = mean(dydxs)
        return ame
 end
 
 # check ame function
-ame_func(res[:, :coef])
+ame_1 = ame_func(res[:, :coef])
 
 #https://juliadiff.org/ForwardDiff.jl/stable/
+# https://github.com/JuliaDiff/ForwardDiff.jl
 
-ForwardDiff.gradient(ame_func, res[:, :coef])
+# function nabla on AME
+nabla_ame(β_hat) = ForwardDiff.gradient(ame_func, β_hat) # g = ∇f
+∇c = nabla_ame(res[:, :coef])
 
-g(res[:, :coef])
+# 6-element Vector{Float64}:
+#  0.43084216910172146
+#  0.000632954030201298
+#  6.58070931255419e-5
+#  8.500599076504207e-5
+#  5.184932558308117e-5
+#  0.0001948025251364571
+
+ame_se_1 = sqrt(transpose(∇c) * β_vcm * ∇c)
+
+ame_1 / ame_se_1

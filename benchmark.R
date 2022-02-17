@@ -17,10 +17,12 @@ summary(mydata)
 myprobit <- glm(admit ~ gre + gpa + rank, family = binomial(link = "probit"), 
     data = mydata)
 
+myprobit
+
 ## model summary
 summary(myprobit)
 
 # margins 
 m <- margins(myprobit)
 summary(m)
-
+    
